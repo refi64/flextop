@@ -98,6 +98,10 @@ gboolean edit_keys(GKeyFile *key_file, const char *section, FlatpakInfo *info,
 }
 
 gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **error) {
+  if (!mkdir_with_parents_exists_ok(host->applications, error)) {
+    return FALSE;
+  }
+
   for (int i = 0; i < paths->len; i++) {
     const char *path = g_ptr_array_index(paths, i);
 
