@@ -230,6 +230,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  const char *command = argv[1];
+
   if (!ensure_running_inside_flatpak()) {
     return 1;
   }
@@ -253,17 +255,17 @@ int main(int argc, char **argv) {
   }
 
   gboolean success = FALSE;
-  if (strcmp(argv[1], "install") == 0) {
+  if (strcmp(command, "install") == 0) {
     success = install(args, info, host, &error);
-  } else if (strcmp(argv[1], "uninstall") == 0) {
+  } else if (strcmp(command, "uninstall") == 0) {
     success = uninstall(args, info, host, &error);
   } else {
-    g_warning("Unknown command: %s", argv[1]);
+    g_warning("Unknown command: %s", command);
     return 1;
   }
 
   if (!success) {
-    g_warning("Failed to process file: %s", error->message);
+    g_warning("Failed to %s file: %s", command, error->message);
     return 1;
   }
 
