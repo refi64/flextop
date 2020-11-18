@@ -247,9 +247,6 @@ int main(int argc, char **argv) {
   }
 
   DataDir *host = data_dir_new_host(info);
-  if (!ensure_host_access(host)) {
-    return 1;
-  }
 
   g_autoptr(GPtrArray) args = g_ptr_array_new();
   for (int i = 4; i < argc; i++) {
@@ -260,6 +257,10 @@ int main(int argc, char **argv) {
 
   gboolean success = FALSE;
   if (strcmp(command, "install") == 0) {
+    if (!ensure_host_access(host)) {
+      return 1;
+    }
+
     success = install(args, info, host, &error);
   } else if (strcmp(command, "uninstall") == 0) {
     success = uninstall(args, info, host, &error);
