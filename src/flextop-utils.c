@@ -176,7 +176,7 @@ static void get_lowest_existing_parent_info(GFile *file, guint32 *out_device,
 
 gboolean data_dir_test_access(DataDir *dir) {
   g_autoptr(GFile) root_file = g_file_new_for_path("/");
-  guint32 root_device;
+  guint32 root_device = 0;
   g_warn_if_fail(query_path_info(root_file, &root_device, NULL, NULL));
 
   g_debug("root_device = %" G_GUINT32_FORMAT, root_device);
