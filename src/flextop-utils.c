@@ -66,25 +66,6 @@ void flatpak_info_free(FlatpakInfo *info) {
   g_clear_pointer(&info->arch, g_free);
 }
 
-static void replace_all(char *s, char c, char r) {
-  char *p = s;
-  while ((p = strchr(s, c))) {
-    *p = r;
-  }
-}
-
-static char *escape_app_id(FlatpakInfo *info) {
-  g_autofree char *escaped_app_id = g_strdup(info->app);
-  replace_all(escaped_app_id, '-', '_');
-  replace_all(escaped_app_id, '.', '-');
-  return g_steal_pointer(&escaped_app_id);
-}
-
-char *add_app_icon_prefix(FlatpakInfo *info, const char *icon) {
-  g_autofree char *escaped_app_id = escape_app_id(info);
-  return g_strdup_printf("flatpak-%s-%s", escaped_app_id, icon);
-}
-
 DataDir *data_dir_new_for_root(GFile *root) {
   DataDir *result = g_new0(DataDir, 1);
   result->root = g_object_ref(root);
@@ -98,16 +79,7 @@ DataDir *data_dir_new_host(FlatpakInfo *info) {
   const char *home = g_get_home_dir();
   g_autofree char *share = g_build_filename(home, ".local", "share", NULL);
   g_autoptr(GFile) share_file = g_file_new_for_path(share);
-
-  DataDir *result = data_dir_new_for_root(share_file);
-
-  // Append a Flatpak-specific suffix onto the result applications directory.
-  g_autoptr(GFile) original_applications = g_steal_pointer(&result->applications);
-  g_autofree char *escaped_app_id = escape_app_id(info);
-  g_autofree char *applications_subdir = g_strdup_printf("flatpak-%s", escaped_app_id);
-  result->applications = g_file_get_child(original_applications, applications_subdir);
-
-  return result;
+  return data_dir_new_for_root(share_file);
 }
 
 DataDir *data_dir_new_private() {

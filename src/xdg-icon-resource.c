@@ -25,10 +25,8 @@ gboolean install(FlatpakInfo *info, DataDir *host, const char *icon_file,
     return FALSE;
   }
 
-  g_autofree char *prefixed_icon_name = add_app_icon_prefix(info, icon_name);
-
   g_autoptr(GFile) source_file = g_file_new_for_path(icon_file);
-  g_autofree char *dest_filename = g_strdup_printf("%s.png", prefixed_icon_name);
+  g_autofree char *dest_filename = g_strdup_printf("%s.png", icon_name);
   g_autoptr(GFile) dest_file = g_file_get_child(dest_dir_file, dest_filename);
   if (!g_file_copy(source_file, dest_file, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL,
                    error)) {

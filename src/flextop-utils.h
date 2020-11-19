@@ -34,8 +34,6 @@ void flatpak_info_free(FlatpakInfo *info);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(FlatpakInfo, flatpak_info_free)
 
-char *add_app_icon_prefix(FlatpakInfo *info, const char *icon);
-
 typedef struct DataDir {
   GFile *root;
   GFile *applications;

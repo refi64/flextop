@@ -17,6 +17,8 @@
 
 #include <gtk/gtk.h>
 
+#define DESKTOP_KEY_X_FLATPAK_PART_OF "X-Flatpak-Part-Of"
+
 gboolean ensure_host_access(DataDir *host) {
   if (!data_dir_test_access(host)) {
     gtk_init(0, NULL);
@@ -34,15 +36,6 @@ gboolean ensure_host_access(DataDir *host) {
   }
 
   return TRUE;
-}
-
-void edit_icon_key(GKeyFile *key_file, const char *section, FlatpakInfo *info) {
-  g_autofree char *icon =
-      g_key_file_get_string(key_file, section, G_KEY_FILE_DESKTOP_KEY_ICON, NULL);
-  if (icon != NULL) {
-    g_autofree char *prefixed_icon = add_app_icon_prefix(info, icon);
-    g_key_file_set_string(key_file, section, G_KEY_FILE_DESKTOP_KEY_ICON, prefixed_icon);
-  }
 }
 
 gboolean edit_exec_key(GKeyFile *key_file, const char *section, FlatpakInfo *info,
@@ -93,7 +86,6 @@ gboolean edit_exec_key(GKeyFile *key_file, const char *section, FlatpakInfo *inf
 
 gboolean edit_keys(GKeyFile *key_file, const char *section, FlatpakInfo *info,
                    GError **error) {
-  edit_icon_key(key_file, section, info);
   return edit_exec_key(key_file, section, info, error);
 }
 
@@ -112,6 +104,9 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
       g_prefix_error(error, "Loading %s: ", path);
       return FALSE;
     }
+
+    g_key_file_set_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
+                          DESKTOP_KEY_X_FLATPAK_PART_OF, info->app);
 
     if (!edit_keys(key_file, G_KEY_FILE_DESKTOP_GROUP, info, error)) {
       return FALSE;
