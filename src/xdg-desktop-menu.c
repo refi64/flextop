@@ -89,6 +89,64 @@ gboolean edit_keys(GKeyFile *key_file, const char *section, FlatpakInfo *info,
   return edit_exec_key(key_file, section, info, error);
 }
 
+char *drop_expected_path_suffixes(const char *path, ...) {
+  g_autoptr(GSList) suffixes = NULL;
+
+  // The suffixes need to be removed starting with the last one, so load them
+  // up into an SList first, that way they'll end up reversed when we start
+  // iterating over them.
+
+  va_list va;
+  va_start(va, path);
+
+  for (;;) {
+    const char *suffix = va_arg(va, const char *);
+    if (suffix == NULL) {
+      break;
+    }
+
+    suffixes = g_slist_prepend(suffixes, (gpointer)suffix);
+  }
+
+  va_end(va);
+
+  g_autofree char *result = g_strdup(path);
+  gsize result_len = strlen(result);
+
+  for (GSList *node = suffixes; node != NULL; node = node->next) {
+    const char *suffix = node->data;
+    gsize suffix_len = strlen(suffix);
+
+    if (suffix_len + 1 >= result_len) {
+      return NULL;
+    }
+
+    char *to_strip = &result[result_len - suffix_len - 1];
+    if (*to_strip != '/' || strcmp(to_strip + 1, suffix) != 0) {
+      return NULL;
+    }
+
+    *to_strip = '\0';
+    result_len -= suffix_len + 1;
+  }
+
+  return g_steal_pointer(&result);
+}
+
+void edit_try_exec(GKeyFile *key_file, FlatpakInfo *info) {
+  g_autofree char *installation_root =
+      drop_expected_path_suffixes(info->app_path, "app", info->app, info->arch,
+                                  info->branch, info->app_commit, "files", NULL);
+  if (installation_root == NULL) {
+    g_warning("Could not detect installation root for %s", info->app);
+  } else {
+    g_autofree char *wrapper_exe =
+        g_build_filename(installation_root, "exports", "bin", info->app, NULL);
+    g_key_file_set_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
+                          G_KEY_FILE_DESKTOP_KEY_TRY_EXEC, wrapper_exe);
+  }
+}
+
 gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **error) {
   if (!mkdir_with_parents_exists_ok(host->applications, error)) {
     return FALSE;
@@ -111,6 +169,8 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
     if (!edit_keys(key_file, G_KEY_FILE_DESKTOP_GROUP, info, error)) {
       return FALSE;
     }
+
+    edit_try_exec(key_file, info);
 
     g_auto(GStrv) actions = g_key_file_get_string_list(
         key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_ACTIONS, NULL, NULL);

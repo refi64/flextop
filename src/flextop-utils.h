@@ -26,6 +26,8 @@ typedef struct FlatpakInfo {
   char *app;
   char *branch;
   char *arch;
+  char *app_commit;
+  char *app_path;
 } FlatpakInfo;
 
 FlatpakInfo *flatpak_info_new();
