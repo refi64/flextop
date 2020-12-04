@@ -50,13 +50,27 @@ gboolean flatpak_info_load(FlatpakInfo *info, GError **error) {
   }
 
   info->app = g_key_file_get_string(key_file, "Application", "name", error);
-  info->branch = g_key_file_get_string(key_file, "Instance", "branch", error);
-  info->arch = g_key_file_get_string(key_file, "Instance", "arch", error);
-  info->app_path = g_key_file_get_string(key_file, "Instance", "app-path", error);
-  info->app_commit = g_key_file_get_string(key_file, "Instance", "app-commit", error);
+  if (info->app == NULL) {
+    return FALSE;
+  }
 
-  if (info->app == NULL || info->branch == NULL || info->arch == NULL ||
-      info->app_path == NULL || info->app_commit == NULL) {
+  info->branch = g_key_file_get_string(key_file, "Instance", "branch", error);
+  if (info->branch == NULL) {
+    return FALSE;
+  }
+
+  info->arch = g_key_file_get_string(key_file, "Instance", "arch", error);
+  if (info->arch == NULL) {
+    return FALSE;
+  }
+
+  info->app_path = g_key_file_get_string(key_file, "Instance", "app-path", error);
+  if (info->app_path == NULL) {
+    return FALSE;
+  }
+
+  info->app_commit = g_key_file_get_string(key_file, "Instance", "app-commit", error);
+  if (info->app_commit == NULL) {
     return FALSE;
   }
 
