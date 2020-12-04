@@ -63,8 +63,6 @@ gboolean edit_exec_key(GKeyFile *key_file, const char *section, FlatpakInfo *inf
   g_autoptr(GPtrArray) new_argv = g_ptr_array_new_with_free_func(g_free);
   g_ptr_array_add(new_argv, g_strdup("flatpak"));
   g_ptr_array_add(new_argv, g_strdup("run"));
-  g_ptr_array_add(new_argv, g_strdup_printf("--branch=%s", info->branch));
-  g_ptr_array_add(new_argv, g_strdup_printf("--arch=%s", info->arch));
   g_ptr_array_add(new_argv, g_strdup_printf("--command=%s", argv[0]));
   g_ptr_array_add(new_argv, g_strdup(info->app));
 
