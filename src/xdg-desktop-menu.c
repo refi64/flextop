@@ -72,7 +72,9 @@ gboolean edit_exec_key(GKeyFile *key_file, const char *section, FlatpakInfo *inf
     g_ptr_array_add(new_argv, g_strdup(argv[i]));
   }
 
-  for (int i = 0; i < new_argv->len; i++) {
+  // Start at 1 to avoid quoting the "flatpak" binary name, which messes with GNOME
+  // Shell trying to ignore the name from searches.
+  for (int i = 1; i < new_argv->len; i++) {
     g_autofree char *unquoted = g_ptr_array_index(new_argv, i);
     g_ptr_array_index(new_argv, i) = g_shell_quote(unquoted);
   }
