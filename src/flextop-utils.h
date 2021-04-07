@@ -18,9 +18,13 @@
 #include <gio/gio.h>
 #include <glib.h>
 
+#define DESKTOP_KEY_X_FLATPAK_PART_OF "X-Flatpak-Part-Of"
+
 gboolean ensure_running_inside_flatpak();
 
 gboolean mkdir_with_parents_exists_ok(GFile *dir, GError **error);
+
+GFile *get_flextop_data_dir(GError **error);
 
 typedef struct FlatpakInfo {
   char *app;
@@ -32,6 +36,7 @@ typedef struct FlatpakInfo {
 
 FlatpakInfo *flatpak_info_new();
 gboolean flatpak_info_load(FlatpakInfo *info, GError **error);
+char *flatpak_info_add_desktop_file_prefix(FlatpakInfo *info, const char *unprefixed);
 void flatpak_info_free(FlatpakInfo *info);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(FlatpakInfo, flatpak_info_free)

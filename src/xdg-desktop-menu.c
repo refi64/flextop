@@ -17,8 +17,6 @@
 
 #include <gtk/gtk.h>
 
-#define DESKTOP_KEY_X_FLATPAK_PART_OF "X-Flatpak-Part-Of"
-
 gboolean ensure_host_access(DataDir *host) {
   if (!data_dir_test_access(host)) {
     gtk_init(0, NULL);
@@ -183,9 +181,11 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
       }
     }
 
-    g_autofree char *filename = g_path_get_basename(path);
+    g_autofree char *unprefixed_filename = g_path_get_basename(path);
+    g_autofree char *prefixed_filename =
+        flatpak_info_add_desktop_file_prefix(info, unprefixed_filename);
     g_autofree char *dest =
-        g_build_filename(g_file_peek_path(host->applications), filename, NULL);
+        g_build_filename(g_file_peek_path(host->applications), prefixed_filename, NULL);
     if (!g_key_file_save_to_file(key_file, dest, error)) {
       return FALSE;
     }
@@ -240,12 +240,14 @@ GPtrArray *find_all_files_for_app_icon(GFile *icons, const char *icon) {
 gboolean uninstall(GPtrArray *filenames, FlatpakInfo *info, DataDir *host,
                    GError **error) {
   for (int i = 0; i < filenames->len; i++) {
-    const char *filename = g_ptr_array_index(filenames, i);
+    const char *unprefixed_filename = g_ptr_array_index(filenames, i);
+    g_autofree char *prefixed_filename =
+        flatpak_info_add_desktop_file_prefix(info, unprefixed_filename);
 
-    g_autoptr(GFile) file = g_file_get_child(host->applications, filename);
+    g_autoptr(GFile) file = g_file_get_child(host->applications, prefixed_filename);
     if (!g_file_query_exists(file, NULL)) {
       g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                  "Desktop file %s does not exist", filename);
+                  "Desktop file %s does not exist", prefixed_filename);
       return FALSE;
     }
 

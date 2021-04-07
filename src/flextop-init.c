@@ -75,14 +75,108 @@ gboolean atomic_relink(GFile *link, const char *target, GError **error) {
   return TRUE;
 }
 
-gboolean setup_applications_folder(DataDir *host, DataDir *priv, GError **error) {
+GFile *get_sibling_file(GFile *file, const char *sibling_name) {
+  g_autoptr(GFile) parent = g_file_get_parent(file);
+  return g_file_get_child(parent, sibling_name);
+}
+
+gboolean migrate_prefix_desktop_file(FlatpakInfo *info, GFile *file, GFileInfo *file_info,
+                                     GError **error) {
+  g_autofree char *prefix = g_strdup_printf("%s.", info->app);
+  if (g_str_has_prefix(g_file_info_get_name(file_info), prefix)) {
+    // Already migrated.
+    return TRUE;
+  }
+
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  if (!g_key_file_load_from_file(key_file, g_file_peek_path(file), G_KEY_FILE_NONE,
+                                 error)) {
+    return FALSE;
+  }
+
+  g_autofree char *part_of = g_key_file_get_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
+                                                   DESKTOP_KEY_X_FLATPAK_PART_OF, NULL);
+  if (g_strcmp0(part_of, info->app) != 0) {
+    // Not our file to worry about.
+    return TRUE;
+  }
+
+  g_debug("Migrate file: %s", g_file_peek_path(file));
+
+  g_autofree char *prefixed_basename =
+      flatpak_info_add_desktop_file_prefix(info, g_file_info_get_name(file_info));
+  g_autoptr(GFile) prefixed_file = get_sibling_file(file, prefixed_basename);
+
+  if (!g_file_move(file, prefixed_file, G_FILE_COPY_NO_FALLBACK_FOR_MOVE, NULL, NULL,
+                   NULL, error)) {
+    g_prefix_error(error, "Migrating desktop file %s", g_file_peek_path(file));
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+gboolean migrate_prefix_all_desktop_files(FlatpakInfo *info, DataDir *priv,
+                                          GError **error) {
+  g_autoptr(GFile) flextop_data = get_flextop_data_dir(error);
+  if (flextop_data == NULL) {
+    return FALSE;
+  }
+
+  g_autoptr(GFile) migration_stamp = g_file_get_child(flextop_data, "prefixed-app-ids");
+  if (g_file_query_exists(migration_stamp, NULL)) {
+    // Already migrated.
+    return TRUE;
+  }
+
+  g_autoptr(GFileEnumerator) enumerator =
+      g_file_enumerate_children(priv->applications, G_FILE_ATTRIBUTE_STANDARD_TYPE,
+                                G_FILE_QUERY_INFO_NONE, NULL, error);
+  if (enumerator == NULL) {
+    if (g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
+      g_clear_error(error);
+    } else {
+      g_prefix_error(error, "Enumerating files to migrate");
+      return FALSE;
+    }
+  } else {
+    for (;;) {
+      GFileInfo *child_info = NULL;
+      GFile *child = NULL;
+
+      if (!g_file_enumerator_iterate(enumerator, &child_info, &child, NULL, error)) {
+        return FALSE;
+      } else if (child_info == NULL) {
+        // No more files.
+        break;
+      }
+
+      if (g_file_info_get_file_type(child_info) == G_FILE_TYPE_REGULAR &&
+          g_str_has_suffix(g_file_info_get_name(child_info), ".desktop") &&
+          !migrate_prefix_desktop_file(info, child, child_info, error)) {
+        return FALSE;
+      }
+    }
+  }
+
+  if (!g_file_set_contents(g_file_peek_path(migration_stamp), "", 0, error)) {
+    g_prefix_error(error, "Setting migration stamp");
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+gboolean setup_applications_folder(FlatpakInfo *info, DataDir *host, DataDir *priv,
+                                   GError **error) {
   if (!mkdir_with_parents_exists_ok(host->applications, error)) {
     return FALSE;
   }
 
-  GFileInfo *info = g_file_query_info(priv->applications, G_FILE_ATTRIBUTE_STANDARD_TYPE,
-                                      G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, error);
-  if (!info) {
+  GFileInfo *applications_info =
+      g_file_query_info(priv->applications, G_FILE_ATTRIBUTE_STANDARD_TYPE,
+                        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, error);
+  if (!applications_info) {
     if (!g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
       g_prefix_error(error, "query %s", g_file_peek_path(priv->applications));
       return FALSE;
@@ -91,10 +185,13 @@ gboolean setup_applications_folder(DataDir *host, DataDir *priv, GError **error)
     g_clear_error(error);
   }
 
+  gboolean should_migrate = applications_info != NULL;
+
   // If the applications path exists as a directory already, then someone has
   // tried installing PWAs or creating shortcuts without flextop. For safety,
   // it's easiest to just rename it to the first other path we can.
-  if (info && g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+  if (applications_info &&
+      g_file_info_get_file_type(applications_info) == G_FILE_TYPE_DIRECTORY) {
     for (int i = 0;; i++) {
       g_autofree char *new_name =
           g_strdup_printf("%s.%d", g_file_peek_path(priv->applications), i);
@@ -118,6 +215,10 @@ gboolean setup_applications_folder(DataDir *host, DataDir *priv, GError **error)
   }
 
   if (!atomic_relink(priv->applications, g_file_peek_path(host->applications), error)) {
+    return FALSE;
+  }
+
+  if (should_migrate && !migrate_prefix_all_desktop_files(info, priv, error)) {
     return FALSE;
   }
 
@@ -148,7 +249,7 @@ int main() {
   g_autoptr(DataDir) host = data_dir_new_host(info);
   g_autoptr(DataDir) priv = data_dir_new_private();
 
-  if (!setup_applications_folder(host, priv, &error)) {
+  if (!setup_applications_folder(info, host, priv, &error)) {
     g_warning("Failed to set up applications folder: %s", error->message);
     return 1;
   }

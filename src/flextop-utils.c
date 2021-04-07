@@ -41,6 +41,17 @@ gboolean mkdir_with_parents_exists_ok(GFile *dir, GError **error) {
   return TRUE;
 }
 
+GFile *get_flextop_data_dir(GError **error) {
+  g_autofree char *path = g_build_filename(g_get_user_data_dir(), "flextop", NULL);
+  g_autoptr(GFile) file = g_file_new_for_path(path);
+  if (!mkdir_with_parents_exists_ok(file, error)) {
+    g_prefix_error(error, "Creating flextop data dir");
+    return NULL;
+  }
+
+  return g_steal_pointer(&file);
+}
+
 FlatpakInfo *flatpak_info_new() { return g_new0(FlatpakInfo, 1); }
 
 gboolean flatpak_info_load(FlatpakInfo *info, GError **error) {
@@ -75,6 +86,10 @@ gboolean flatpak_info_load(FlatpakInfo *info, GError **error) {
   }
 
   return TRUE;
+}
+
+char *flatpak_info_add_desktop_file_prefix(FlatpakInfo *info, const char *unprefixed) {
+  return g_strdup_printf("%s.flextop.%s", info->app, unprefixed);
 }
 
 void flatpak_info_free(FlatpakInfo *info) {
