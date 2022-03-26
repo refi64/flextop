@@ -26,6 +26,8 @@ gboolean mkdir_with_parents_exists_ok(GFile *dir, GError **error);
 
 GFile *get_flextop_data_dir(GError **error);
 
+gboolean delete_maybe_invalid_desktop_file(const char *path, GError **error);
+
 typedef struct FlatpakInfo {
   char *app;
   char *branch;

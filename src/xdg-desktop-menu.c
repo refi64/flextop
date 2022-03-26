@@ -150,8 +150,21 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
     return FALSE;
   }
 
+  const char *desktop_dir = g_get_user_special_dir(G_USER_DIRECTORY_DESKTOP);
+
   for (int i = 0; i < paths->len; i++) {
     const char *path = g_ptr_array_index(paths, i);
+    g_autofree char *unprefixed_filename = g_path_get_basename(path);
+
+    g_autofree char *file_on_desktop =
+        g_build_filename(desktop_dir, unprefixed_filename, NULL);
+    g_debug("Corresponding file on desktop: %s", file_on_desktop);
+    if (access(file_on_desktop, R_OK) != -1) {
+      g_autoptr(GError) local_error = NULL;
+      if (!delete_maybe_invalid_desktop_file(file_on_desktop, &local_error)) {
+        g_warning("Failed to check desktop file: %s", local_error->message);
+      }
+    }
 
     g_autoptr(GKeyFile) key_file = g_key_file_new();
     if (!g_key_file_load_from_file(
@@ -181,7 +194,6 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
       }
     }
 
-    g_autofree char *unprefixed_filename = g_path_get_basename(path);
     g_autofree char *prefixed_filename =
         flatpak_info_add_desktop_file_prefix(info, unprefixed_filename);
     g_autofree char *dest =

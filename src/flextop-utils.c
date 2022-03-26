@@ -52,6 +52,56 @@ GFile *get_flextop_data_dir(GError **error) {
   return g_steal_pointer(&file);
 }
 
+static const char *get_chrome_wrapper() {
+  const char *chrome_wrapper = g_getenv("CHROME_WRAPPER");
+  if (chrome_wrapper == NULL) {
+    static gsize displayed_warning = FALSE;
+    if (g_once_init_enter(&displayed_warning)) {
+      g_warning("CHROME_WRAPPER is not set");
+      g_once_init_leave(&displayed_warning, TRUE);
+    }
+  }
+
+  return chrome_wrapper;
+}
+
+gboolean delete_maybe_invalid_desktop_file(const char *path, GError **error) {
+  g_debug("Inspect desktop file '%s'", path);
+
+  const char *chrome_wrapper = get_chrome_wrapper();
+  if (chrome_wrapper == NULL) {
+    return TRUE;
+  }
+
+  g_autoptr(GKeyFile) key_file = g_key_file_new();
+  if (!g_key_file_load_from_file(key_file, path, G_KEY_FILE_NONE, error)) {
+    return FALSE;
+  }
+
+  g_autofree char *exec = g_key_file_get_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
+                                                G_KEY_FILE_DESKTOP_KEY_EXEC, NULL);
+  if (exec == NULL) {
+    return TRUE;
+  }
+
+  g_auto(GStrv) argv = NULL;
+  if (!g_shell_parse_argv(exec, NULL, &argv, error)) {
+    g_prefix_error(error, "Checking Exec= in '%s': ", path);
+    return FALSE;
+  }
+
+  if (argv != NULL && g_strcmp0(argv[0], chrome_wrapper) == 0) {
+    g_debug("Removing invalid desktop file: %s", path);
+    if (unlink(path) == -1) {
+      g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno),
+                  "Failed to delete '%s': %s", path, g_strerror(errno));
+      return FALSE;
+    }
+  }
+
+  return TRUE;
+}
+
 FlatpakInfo *flatpak_info_new() { return g_new0(FlatpakInfo, 1); }
 
 gboolean flatpak_info_load(FlatpakInfo *info, GError **error) {

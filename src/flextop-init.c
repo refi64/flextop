@@ -129,9 +129,10 @@ gboolean migrate_prefix_all_desktop_files(FlatpakInfo *info, DataDir *priv,
     return TRUE;
   }
 
-  g_autoptr(GFileEnumerator) enumerator =
-      g_file_enumerate_children(priv->applications, G_FILE_ATTRIBUTE_STANDARD_TYPE,
-                                G_FILE_QUERY_INFO_NONE, NULL, error);
+  g_autoptr(GFileEnumerator) enumerator = g_file_enumerate_children(
+      priv->applications,
+      G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+      G_FILE_QUERY_INFO_NONE, NULL, error);
   if (enumerator == NULL) {
     if (g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
       g_clear_error(error);
@@ -225,6 +226,51 @@ gboolean setup_applications_folder(FlatpakInfo *info, DataDir *host, DataDir *pr
   return TRUE;
 }
 
+gboolean delete_invalid_desktop_files(GError **error) {
+  const char *desktop_dir = g_get_user_special_dir(G_USER_DIRECTORY_DESKTOP);
+  if (desktop_dir == NULL) {
+    return TRUE;
+  }
+
+  g_autoptr(GFile) desktop_dir_file = g_file_new_for_path(desktop_dir);
+  g_autoptr(GFileEnumerator) enumerator = g_file_enumerate_children(
+      desktop_dir_file, G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+      G_FILE_QUERY_INFO_NONE, NULL, error);
+  if (enumerator == NULL) {
+    if (g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
+      g_clear_error(error);
+      return TRUE;
+    } else {
+      g_prefix_error(error, "Enumerating files to migrate");
+      return FALSE;
+    }
+  }
+
+  for (;;) {
+    GFileInfo *child_info = NULL;
+    GFile *child = NULL;
+
+    if (!g_file_enumerator_iterate(enumerator, &child_info, &child, NULL, error)) {
+      return FALSE;
+    } else if (child_info == NULL) {
+      // No more files.
+      break;
+    }
+
+    if (g_file_info_get_file_type(child_info) == G_FILE_TYPE_REGULAR &&
+        g_str_has_suffix(g_file_info_get_name(child_info), ".desktop")) {
+      g_autofree char *path =
+          g_build_filename(desktop_dir, g_file_info_get_name(child_info), NULL);
+      g_autoptr(GError) local_error = NULL;
+      if (!delete_maybe_invalid_desktop_file(path, &local_error)) {
+        g_warning("Failed to check desktop file: %s", local_error->message);
+      }
+    }
+  }
+
+  return TRUE;
+}
+
 int main() {
   g_set_prgname("flextop-init");
 
@@ -251,6 +297,11 @@ int main() {
 
   if (!setup_applications_folder(info, host, priv, &error)) {
     g_warning("Failed to set up applications folder: %s", error->message);
+    return 1;
+  }
+
+  if (!delete_invalid_desktop_files(&error)) {
+    g_warning("Failed to delete invalid desktop files: %s", error->message);
     return 1;
   }
 
