@@ -274,7 +274,7 @@ gboolean uninstall(GPtrArray *filenames, FlatpakInfo *info, DataDir *host,
     if (icon_name != NULL) {
       g_autoptr(GPtrArray) icons = find_all_files_for_app_icon(host->icons, icon_name);
       for (int j = 0; j < icons->len; j++) {
-        GFile *file = g_ptr_array_index(icons, i);
+        GFile *file = g_ptr_array_index(icons, j);
         g_autoptr(GError) local_error = NULL;
         if (!g_file_delete(file, NULL, &local_error)) {
           if (!g_error_matches(local_error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
