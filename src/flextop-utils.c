@@ -146,6 +146,8 @@ void flatpak_info_free(FlatpakInfo *info) {
   g_clear_pointer(&info->app, g_free);
   g_clear_pointer(&info->branch, g_free);
   g_clear_pointer(&info->arch, g_free);
+  g_clear_pointer(&info->app_path, g_free);
+  g_clear_pointer(&info->app_commit, g_free);
 }
 
 DataDir *data_dir_new_for_root(GFile *root) {
