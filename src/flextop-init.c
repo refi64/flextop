@@ -35,9 +35,9 @@ LockFd acquire_lock(FlatpakInfo *info, GError **error) {
   }
 
   if (flock(fd, LOCK_EX) == -1) {
+    int err = errno;
     close(fd);
 
-    int err = errno;
     g_set_error(error, G_IO_ERROR, g_io_error_from_errno(err), "Failed to set lock: %s",
                 strerror(err));
     return -1;
