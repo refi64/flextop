@@ -62,6 +62,9 @@ gboolean edit_exec_key(GKeyFile *key_file, const char *section, FlatpakInfo *inf
   g_ptr_array_add(new_argv, g_strdup("flatpak"));
   g_ptr_array_add(new_argv, g_strdup("run"));
   g_ptr_array_add(new_argv, g_strdup_printf("--command=%s", argv[0]));
+  g_ptr_array_add(new_argv,
+                  g_strdup_printf("--env=CHROME_WEB_APP_DESKTOP_ID_PREFIX=%s.flextop.",
+                                  info->app));
   g_ptr_array_add(new_argv, g_strdup(info->app));
 
   for (int i = 1; i < argc; i++) {
