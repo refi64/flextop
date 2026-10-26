@@ -168,36 +168,39 @@ gboolean migrate_prefix_all_desktop_files(FlatpakInfo *info, DataDir *priv,
   return TRUE;
 }
 
-gboolean setup_applications_folder(FlatpakInfo *info, DataDir *host, DataDir *priv,
-                                   GError **error) {
-  if (!mkdir_with_parents_exists_ok(host->applications, error)) {
+// Make the private directory a symlink to the host one, so paths under the
+// private data dir (e.g. absolute Icon= paths written by Chromium) resolve on
+// the host too.
+gboolean link_to_host(GFile *priv_dir, GFile *host_dir, gboolean *existed,
+                      GError **error) {
+  if (!mkdir_with_parents_exists_ok(host_dir, error)) {
     return FALSE;
   }
 
-  GFileInfo *applications_info =
-      g_file_query_info(priv->applications, G_FILE_ATTRIBUTE_STANDARD_TYPE,
+  g_autoptr(GFileInfo) priv_info =
+      g_file_query_info(priv_dir, G_FILE_ATTRIBUTE_STANDARD_TYPE,
                         G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, error);
-  if (!applications_info) {
+  if (!priv_info) {
     if (!g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
-      g_prefix_error(error, "query %s", g_file_peek_path(priv->applications));
+      g_prefix_error(error, "query %s", g_file_peek_path(priv_dir));
       return FALSE;
     }
 
     g_clear_error(error);
   }
 
-  gboolean should_migrate = applications_info != NULL;
+  if (existed != NULL) {
+    *existed = priv_info != NULL;
+  }
 
-  // If the applications path exists as a directory already, then someone has
-  // tried installing PWAs or creating shortcuts without flextop. For safety,
-  // it's easiest to just rename it to the first other path we can.
-  if (applications_info &&
-      g_file_info_get_file_type(applications_info) == G_FILE_TYPE_DIRECTORY) {
+  // If the path exists as a directory already, then someone has tried
+  // installing PWAs or creating shortcuts without flextop. For safety, it's
+  // easiest to just rename it to the first other path we can.
+  if (priv_info && g_file_info_get_file_type(priv_info) == G_FILE_TYPE_DIRECTORY) {
     for (int i = 0;; i++) {
-      g_autofree char *new_name =
-          g_strdup_printf("%s.%d", g_file_peek_path(priv->applications), i);
-      GFile *new_file = g_file_new_for_path(new_name);
-      if (!g_file_move(priv->applications, new_file,
+      g_autofree char *new_name = g_strdup_printf("%s.%d", g_file_peek_path(priv_dir), i);
+      g_autoptr(GFile) new_file = g_file_new_for_path(new_name);
+      if (!g_file_move(priv_dir, new_file,
                        G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_NO_FALLBACK_FOR_MOVE,
                        NULL, NULL, NULL, error)) {
         if (g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_EXISTS)) {
@@ -206,7 +209,7 @@ gboolean setup_applications_folder(FlatpakInfo *info, DataDir *host, DataDir *pr
           continue;
         }
 
-        g_prefix_error(error, "Rename %s -> %s", g_file_peek_path(priv->applications),
+        g_prefix_error(error, "Rename %s -> %s", g_file_peek_path(priv_dir),
                        g_file_peek_path(new_file));
         return FALSE;
       }
@@ -215,7 +218,13 @@ gboolean setup_applications_folder(FlatpakInfo *info, DataDir *host, DataDir *pr
     }
   }
 
-  if (!atomic_relink(priv->applications, g_file_peek_path(host->applications), error)) {
+  return atomic_relink(priv_dir, g_file_peek_path(host_dir), error);
+}
+
+gboolean setup_applications_folder(FlatpakInfo *info, DataDir *host, DataDir *priv,
+                                   GError **error) {
+  gboolean should_migrate = FALSE;
+  if (!link_to_host(priv->applications, host->applications, &should_migrate, error)) {
     return FALSE;
   }
 
@@ -298,6 +307,12 @@ int main() {
   if (!setup_applications_folder(info, host, priv, &error)) {
     g_warning("Failed to set up applications folder: %s", error->message);
     return 1;
+  }
+
+  // Not fatal: without this, PWA launchers only lose their icons.
+  if (!link_to_host(priv->icons, host->icons, NULL, &error)) {
+    g_warning("Failed to set up icons folder: %s", error->message);
+    g_clear_error(&error);
   }
 
   if (!delete_invalid_desktop_files(&error)) {
