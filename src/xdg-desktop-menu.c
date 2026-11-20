@@ -82,8 +82,36 @@ gboolean edit_exec_key(GKeyFile *key_file, const char *section, FlatpakInfo *inf
   return TRUE;
 }
 
+void edit_icon_key(GKeyFile *key_file, const char *section, DataDir *host,
+                   DataDir *priv) {
+  // Convert absolute icon paths that point into the sandbox icon directory to
+  // instead point into the host one (where they're actually stored).
+  g_autofree char *icon =
+      g_key_file_get_string(key_file, section, G_KEY_FILE_DESKTOP_KEY_ICON, NULL);
+  if (icon == NULL || !g_path_is_absolute(icon)) {
+    return;
+  }
+
+  g_autoptr(GFile) icon_file = g_file_new_for_path(icon);
+  if (g_file_has_prefix(icon_file, host->icons)) {
+    // Already points to the right place.
+    return;
+  }
+
+  g_autofree char *relative = g_file_get_relative_path(priv->icons, icon_file);
+  if (relative == NULL) {
+    g_warning("Unexpected icon path %s", g_file_peek_path(icon_file));
+    return;
+  }
+
+  g_autoptr(GFile) host_icon = g_file_resolve_relative_path(host->icons, relative);
+  g_key_file_set_string(key_file, section, G_KEY_FILE_DESKTOP_KEY_ICON,
+                        g_file_peek_path(host_icon));
+}
+
 gboolean edit_keys(GKeyFile *key_file, const char *section, FlatpakInfo *info,
-                   GError **error) {
+                   DataDir *host, DataDir *priv, GError **error) {
+  edit_icon_key(key_file, section, host, priv);
   return edit_exec_key(key_file, section, info, error);
 }
 
@@ -145,7 +173,8 @@ void edit_try_exec(GKeyFile *key_file, FlatpakInfo *info) {
   }
 }
 
-gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **error) {
+gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, DataDir *priv,
+                 GError **error) {
   if (!mkdir_with_parents_exists_ok(host->applications, error)) {
     return FALSE;
   }
@@ -177,7 +206,7 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
     g_key_file_set_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
                           DESKTOP_KEY_X_FLATPAK_PART_OF, info->app);
 
-    if (!edit_keys(key_file, G_KEY_FILE_DESKTOP_GROUP, info, error)) {
+    if (!edit_keys(key_file, G_KEY_FILE_DESKTOP_GROUP, info, host, priv, error)) {
       return FALSE;
     }
 
@@ -188,7 +217,7 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
     if (actions) {
       for (char **action = actions; *action; action++) {
         g_autofree char *section = g_strdup_printf("Desktop Action %s", *action);
-        if (!edit_keys(key_file, section, info, error)) {
+        if (!edit_keys(key_file, section, info, host, priv, error)) {
           return FALSE;
         }
       }
@@ -206,14 +235,27 @@ gboolean install(GPtrArray *paths, FlatpakInfo *info, DataDir *host, GError **er
   return TRUE;
 }
 
-GPtrArray *find_all_files_for_app_icon(GFile *icons, const char *icon) {
+GPtrArray *find_all_files_for_app_icon(DataDir *host, DataDir *priv, const char *icon) {
   g_autoptr(GPtrArray) result = g_ptr_array_new_with_free_func(g_object_unref);
   g_autoptr(GError) error = NULL;
 
-  // XXX: We're tied to .png icons for now.
-  g_autofree char *icon_filename = g_strdup_printf("%s.png", icon);
+  g_autofree char *icon_filename = NULL;
+  if (g_path_is_absolute(icon)) {
+    g_autoptr(GFile) icon_file = g_file_new_for_path(icon);
 
-  g_autoptr(GFile) hicolor = g_file_get_child(icons, "hicolor");
+    if (!g_file_has_prefix(icon_file, host->icons) &&
+        !g_file_has_prefix(icon_file, priv->icons)) {
+      g_warning("Unexpected icon path %s", g_file_peek_path(icon_file));
+      return g_steal_pointer(&result);
+    }
+
+    icon_filename = g_file_get_basename(icon_file);
+  } else {
+    // XXX: We're tied to .png icons for now.
+    icon_filename = g_strdup_printf("%s.png", icon);
+  }
+
+  g_autoptr(GFile) hicolor = g_file_get_child(host->icons, "hicolor");
   g_autoptr(GFileEnumerator) size_dirs =
       g_file_enumerate_children(hicolor, "standard::name,standard::type",
                                 G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &error);
@@ -249,7 +291,7 @@ GPtrArray *find_all_files_for_app_icon(GFile *icons, const char *icon) {
   return g_steal_pointer(&result);
 }
 
-gboolean uninstall(GPtrArray *filenames, FlatpakInfo *info, DataDir *host,
+gboolean uninstall(GPtrArray *filenames, FlatpakInfo *info, DataDir *host, DataDir *priv,
                    GError **error) {
   for (int i = 0; i < filenames->len; i++) {
     const char *unprefixed_filename = g_ptr_array_index(filenames, i);
@@ -269,10 +311,10 @@ gboolean uninstall(GPtrArray *filenames, FlatpakInfo *info, DataDir *host,
       return FALSE;
     }
 
-    char *icon_name = g_key_file_get_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
-                                            G_KEY_FILE_DESKTOP_KEY_ICON, NULL);
+    g_autofree char *icon_name = g_key_file_get_string(key_file, G_KEY_FILE_DESKTOP_GROUP,
+                                                       G_KEY_FILE_DESKTOP_KEY_ICON, NULL);
     if (icon_name != NULL) {
-      g_autoptr(GPtrArray) icons = find_all_files_for_app_icon(host->icons, icon_name);
+      g_autoptr(GPtrArray) icons = find_all_files_for_app_icon(host, priv, icon_name);
       for (int j = 0; j < icons->len; j++) {
         GFile *file = g_ptr_array_index(icons, j);
         g_autoptr(GError) local_error = NULL;
@@ -315,7 +357,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  DataDir *host = data_dir_new_host(info);
+  g_autoptr(DataDir) host = data_dir_new_host(info);
+  g_autoptr(DataDir) priv = data_dir_new_private();
 
   g_autoptr(GPtrArray) args = g_ptr_array_new();
   for (int i = 4; i < argc; i++) {
@@ -330,9 +373,9 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    success = install(args, info, host, &error);
+    success = install(args, info, host, priv, &error);
   } else if (strcmp(command, "uninstall") == 0) {
-    success = uninstall(args, info, host, &error);
+    success = uninstall(args, info, host, priv, &error);
   } else {
     g_warning("Unknown command: %s", command);
     return 1;
