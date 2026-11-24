@@ -100,10 +100,9 @@ int main(int argc, char **argv) {
   }
 
   char *size_str = argv[5];
-  char *size_end;
-  int size = g_strtod(size_str, &size_end);
-  if (*size_end != '\0') {
-    g_warning("Invalid size: %s", size_str);
+  gint64 size;
+  if (!g_ascii_string_to_signed(size_str, 10, 0, G_MAXINT, &size, &error)) {
+    g_warning("Invalid size: '%s': %s", size_str, error->message);
     return 1;
   }
 
